@@ -2,21 +2,21 @@
 
 # 🎮 Discord OEA
 
-### **Omni-Execute Agent** — Full Discord Server Control Through Claude Skills
+### **Omni-Execute Agent** — Full Discord Server Control Through AI Skills
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Discord API v10](https://img.shields.io/badge/Discord%20API-v10-5865F2.svg)](https://discord.com/developers/docs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Operations](https://img.shields.io/badge/operations-144-ff6b6b.svg)](#operations-overview)
-[![Skills](https://img.shields.io/badge/claude%20skills-6-blueviolet.svg)](#skills)
+[![Skills](https://img.shields.io/badge/SKILL.md-6%20skills-blueviolet.svg)](#skills)
 
 ---
 
-*Give Claude the keys to your Discord kingdom.*
+*Give your AI agent the keys to your Discord kingdom.*
 
-**Discord OEA** is a set of [Claude Skills](https://docs.anthropic.com/en/docs/build-with-claude/skills) that give AI agents full administrative control over Discord servers — **144 operations** across channels, messages, moderation, roles, emojis, webhooks, and more — all through a single, standalone CLI tool.
+**Discord OEA** is a collection of **6 AI agent skills** following the [`SKILL.md` format](https://docs.anthropic.com/en/docs/build-with-claude/skills) — compatible with **any agentic system** that can consume SKILL.md files (Claude, Cursor, Windsurf, custom agents, etc.). It provides full administrative control over Discord servers — **144 operations** across channels, messages, moderation, roles, emojis, webhooks, and more — all through a single, standalone CLI tool.
 
-No MCP server needed. No running processes. Just drop the skills into your Claude setup and go.
+No MCP server needed. No running processes. Just drop the skills into your agent's workspace and go.
 
 </div>
 
@@ -151,22 +151,20 @@ $ python scripts/discord-cli.py moderation.ban --user_id 123456 --reason "spam"
 
 ---
 
-## 🧠 Claude Skills
+## 🧠 Agent Skills (SKILL.md Format)
 
-Discord OEA is organized into **6 domain-specific skills** designed for the [Anthropic SKILL.md format](https://docs.anthropic.com/en/docs/build-with-claude/skills):
+Discord OEA is organized into **6 domain-specific skills** following the [`SKILL.md` format](https://docs.anthropic.com/en/docs/build-with-claude/skills) — a portable, agent-agnostic standard for teaching AI agents new capabilities. Any agentic coding system that can read SKILL.md files can use these skills out of the box.
 
 ### Installation
 
-Copy the skill folders to your Claude skills directory:
+Copy the skill folders into your agent's skill/tool directory:
 
 ```bash
-# For Claude Code / CLI
-cp -r discord-manage discord-moderate discord-communicate \
-      discord-content discord-admin discord-batch \
-      ~/.claude/skills/
+# Example: Claude Code / CLI
+cp -r discord-* scripts/ ~/.claude/skills/
 
-# Don't forget the CLI tool
-cp -r scripts/ ~/.claude/skills/discord-scripts/
+# Example: Any agent with a skills directory
+cp -r discord-* scripts/ /path/to/your/agent/skills/
 ```
 
 ### Skill Overview
@@ -180,7 +178,7 @@ cp -r scripts/ ~/.claude/skills/discord-scripts/
 | ⚙️ **discord-admin** | Server administration | Guild settings, onboarding, commands, templates, widget |
 | ⚡ **discord-batch** | Bulk operations | Mass role assignments, channel edits, member moderation |
 
-Each skill teaches Claude:
+Each skill teaches your AI agent:
 1. **What** operations are available and when to use them
 2. **How** to construct the exact CLI commands with correct parameters
 3. **Always** present the command to the user for approval before executing
