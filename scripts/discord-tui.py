@@ -1,66 +1,47 @@
 #!/usr/bin/env python3
-"""Discord OEA — Interactive TUI Mode.
+"""Discord OEA — Textual TUI & Web App.
 
-A fully interactive terminal interface for browsing and executing
-all 144 Discord operations. Features rich styling, category browsing,
-schema-aware parameter forms, live command preview, and execution.
+A fully interactive terminal/web UI for browsing and executing
+all 144 Discord operations.
 
-Usage:
-    python discord-tui.py
+Terminal mode:  python discord-tui.py
+Web app mode:   textual serve discord-tui.py
 """
 
 import asyncio
 import json
 import os
 import sys
+import importlib.util
 from pathlib import Path
 
-# Add scripts dir to path for imports
+from textual import on, work
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import (
+    Horizontal, Vertical, VerticalScroll, Container, Center
+)
+from textual.widgets import (
+    Header, Footer, Static, Label, Input, Button,
+    ListView, ListItem, RichLog, Rule, Select,
+    Tree, Collapsible, LoadingIndicator, Switch,
+    DataTable, Markdown, TabbedContent, TabPane,
+)
+from textual.screen import ModalScreen
+from textual.reactive import reactive
+from rich.text import Text
+from rich.syntax import Syntax
+
+# Load the CLI module
 SCRIPT_DIR = Path(__file__).parent
-sys.path.insert(0, str(SCRIPT_DIR))
-
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.text import Text
-    from rich.columns import Columns
-    from rich.syntax import Syntax
-    from rich.prompt import Prompt, Confirm
-    from rich.rule import Rule
-    from rich.live import Live
-    from rich.align import Align
-    from rich.markdown import Markdown
-    from rich import box
-except ImportError:
-    print("Error: 'rich' is required for TUI mode.")
-    print("Install with: pip install rich")
-    sys.exit(1)
-
-# Import the CLI module
-try:
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("discord_cli", SCRIPT_DIR / "discord-cli.py")
-    cli = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(cli)
-except Exception as e:
-    print(f"Error loading discord-cli.py: {e}")
-    sys.exit(1)
-
-console = Console()
+spec = importlib.util.spec_from_file_location("discord_cli", SCRIPT_DIR / "discord-cli.py")
+cli = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cli)
 
 # ---------------------------------------------------------------------------
-# Theme & Constants
+# Constants
 # ---------------------------------------------------------------------------
-
-ACCENT = "bright_cyan"
-ACCENT2 = "bright_magenta"
-DIM = "dim white"
-SUCCESS = "green"
-ERROR = "red"
-WARNING = "yellow"
-
-CATEGORY_ICONS = {
+ICONS = {
     "messages": "💬", "reactions": "😀", "threads": "🧵", "channels": "📁",
     "members": "👥", "moderation": "🔨", "roles": "🎭", "invites": "✉️",
     "events": "📅", "polls": "📊", "guild": "🏰", "audit_log": "📜",
@@ -71,472 +52,544 @@ CATEGORY_ICONS = {
     "dm": "📩", "bulk_ban": "🚫", "batch": "⚡",
 }
 
-CATEGORY_DESCRIPTIONS = {
-    "messages": "Send, edit, delete, pin, and crosspost messages",
-    "reactions": "Add, remove, and list emoji reactions",
-    "threads": "Create, archive, lock, and manage thread members",
-    "channels": "Create, edit, delete channels and permissions",
-    "members": "List, search, edit members and manage roles",
-    "moderation": "Kick, ban, timeout, and manage bans",
-    "roles": "Create, edit, delete, and reorder roles",
-    "invites": "Create, list, and revoke server invites",
-    "events": "Schedule, edit, and manage server events",
-    "polls": "Create polls and end them early",
-    "guild": "View and edit server settings, prune members",
-    "audit_log": "Query the server audit log",
-    "automod": "Create and manage auto-moderation rules",
-    "webhooks": "Create, edit, and send via webhooks",
-    "voice": "Move and disconnect voice members",
-    "emojis": "Upload, rename, and delete custom emojis",
-    "stickers": "View and delete server stickers",
-    "soundboard": "Upload and manage soundboard sounds",
-    "forum": "Create posts and manage forum tags",
-    "stage": "Start/end stage instances, manage speakers",
-    "onboarding": "Configure server onboarding flow",
-    "welcome_screen": "View and edit the welcome screen",
+CAT_DESCRIPTIONS = {
+    "messages": "Send, edit, delete, pin messages",
+    "reactions": "Add/remove emoji reactions",
+    "threads": "Create, archive, lock threads",
+    "channels": "Create, edit, delete channels",
+    "members": "List, search, edit members",
+    "moderation": "Kick, ban, timeout users",
+    "roles": "Create, edit, reorder roles",
+    "invites": "Create and revoke invites",
+    "events": "Schedule server events",
+    "polls": "Create and end polls",
+    "guild": "Server settings and prune",
+    "audit_log": "Query audit log",
+    "automod": "Manage automod rules",
+    "webhooks": "Create and send webhooks",
+    "voice": "Move/disconnect voice users",
+    "emojis": "Upload, rename custom emojis",
+    "stickers": "View and delete stickers",
+    "soundboard": "Upload and manage sounds",
+    "forum": "Create posts, manage tags",
+    "stage": "Manage stage instances",
+    "onboarding": "Configure onboarding",
+    "welcome_screen": "Edit welcome screen",
     "commands": "Manage slash commands",
-    "integrations": "List and remove integrations",
-    "widget": "Configure the server widget",
-    "vanity": "Get and set vanity invite URL",
-    "templates": "Create and manage server templates",
-    "dm": "Send direct messages to users",
-    "bulk_ban": "Ban multiple users at once",
-    "batch": "Bulk operations with rate limiting",
+    "integrations": "List/remove integrations",
+    "widget": "Configure server widget",
+    "vanity": "Get/set vanity URL",
+    "templates": "Server templates",
+    "dm": "Send direct messages",
+    "bulk_ban": "Ban multiple users",
+    "batch": "Bulk operations",
 }
 
 
-# ---------------------------------------------------------------------------
-# ASCII Art Header
-# ---------------------------------------------------------------------------
-
-LOGO = r"""[bright_cyan]
-    ____  _                       __   ____  _________
-   / __ \(_)_____________  _____/ /  / __ \/ ____/   |
-  / / / / / ___/ ___/ __ \/ ___/ /  / / / / __/ / /| |
- / /_/ / (__  ) /__/ /_/ / /  / /  / /_/ / /___/ ___ |
-/_____/_/____/\___/\____/_/  /_/   \____/_____/_/  |_|
-[/bright_cyan]
-[dim]          Omni-Execute Agent • Interactive Mode[/dim]
-[dim]              144 operations • 29 categories[/dim]
-"""
-
-
-# ---------------------------------------------------------------------------
-# UI Components
-# ---------------------------------------------------------------------------
-
-def show_header():
-    """Display the header with connection status."""
-    console.clear()
-    console.print(LOGO)
-    
-    # Connection status bar
-    token_ok = bool(cli.BOT_TOKEN)
-    guild_ok = bool(cli.GUILD_ID)
-    
-    status_parts = []
-    if token_ok:
-        status_parts.append(f"[{SUCCESS}]● Token[/{SUCCESS}]")
-    else:
-        status_parts.append(f"[{ERROR}]○ Token[/{ERROR}]")
-    
-    if guild_ok:
-        status_parts.append(f"[{SUCCESS}]● Guild {cli.GUILD_ID}[/{SUCCESS}]")
-    else:
-        status_parts.append(f"[{ERROR}]○ Guild[/{ERROR}]")
-    
-    status = "  ".join(status_parts)
-    console.print(Align.center(status))
-    console.print()
-
-
-def show_categories():
-    """Display category grid with icons."""
-    # Build categorized operations
+def get_categories():
+    """Get operations grouped by category."""
     cats = {}
     for op in sorted(cli.HANDLERS.keys()):
         parts = op.split(".")
-        if parts[0] == "batch":
-            cat = "batch"
-        else:
-            cat = parts[0]
+        cat = "batch" if parts[0] == "batch" else parts[0]
         cats.setdefault(cat, []).append(op)
-    
-    table = Table(
-        title="[bold]Select a Category[/bold]",
-        box=box.ROUNDED,
-        border_style=ACCENT,
-        show_header=True,
-        header_style=f"bold {ACCENT}",
-        pad_edge=True,
-        expand=True,
-    )
-    table.add_column("#", style="bold yellow", width=4, justify="right")
-    table.add_column("Category", style=f"bold {ACCENT2}", width=20)
-    table.add_column("Ops", style="bold white", width=5, justify="center")
-    table.add_column("Description", style=DIM)
-    
-    sorted_cats = sorted(cats.items())
-    for idx, (cat, ops) in enumerate(sorted_cats, 1):
-        icon = CATEGORY_ICONS.get(cat, "📌")
-        desc = CATEGORY_DESCRIPTIONS.get(cat, "")
-        table.add_row(
-            str(idx),
-            f"{icon} {cat}",
-            str(len(ops)),
-            desc,
-        )
-    
-    console.print(table)
-    console.print()
-    return sorted_cats
+    return dict(sorted(cats.items()))
 
 
-def show_operations(cat_name, operations):
-    """Display operations in a category."""
-    table = Table(
-        title=f"[bold]{CATEGORY_ICONS.get(cat_name, '📌')} {cat_name.upper()} Operations[/bold]",
-        box=box.ROUNDED,
-        border_style=ACCENT2,
-        show_header=True,
-        header_style=f"bold {ACCENT2}",
-        expand=True,
-    )
-    table.add_column("#", style="bold yellow", width=4, justify="right")
-    table.add_column("Operation", style=f"bold {ACCENT}", width=35)
-    table.add_column("Description", style=DIM)
-    
-    for idx, op in enumerate(operations, 1):
-        # Get description from operations.json
-        op_parts = op.split(".")
-        desc = ""
-        if len(op_parts) >= 2:
-            cat_key = op_parts[0]
-            action_key = ".".join(op_parts[1:])
-            cat_data = cli.OPERATIONS.get("categories", {}).get(cat_key, {})
-            op_info = cat_data.get("operations", {}).get(action_key, {})
-            if isinstance(op_info, dict):
-                desc = op_info.get("description", "")
-        
-        table.add_row(str(idx), op, desc)
-    
-    console.print(table)
-    console.print()
-
-
-def get_operation_params(operation):
-    """Get parameter schema for an operation from operations.json."""
-    op_parts = operation.split(".")
-    if len(op_parts) >= 2:
-        cat_key = op_parts[0]
-        action_key = ".".join(op_parts[1:])
+def get_op_info(operation):
+    """Get description and parameters for an operation."""
+    parts = operation.split(".")
+    if len(parts) >= 2:
+        cat_key = parts[0]
+        action_key = ".".join(parts[1:])
         cat_data = cli.OPERATIONS.get("categories", {}).get(cat_key, {})
         op_info = cat_data.get("operations", {}).get(action_key, {})
         if isinstance(op_info, dict):
-            return op_info.get("parameters", {}), op_info.get("description", "")
-    return {}, ""
+            return op_info.get("description", ""), op_info.get("parameters", {})
+    return "", {}
 
 
-def show_param_form(operation, params_schema, description):
-    """Interactive parameter form with schema hints."""
-    console.print(Panel(
-        f"[bold]{operation}[/bold]\n[dim]{description}[/dim]",
-        border_style=ACCENT,
-        title="[bold yellow]Parameter Input[/bold yellow]",
-    ))
-    
-    params = {}
-    
-    if not params_schema:
-        console.print(f"  [{DIM}]No parameters required.[/{DIM}]")
+# ---------------------------------------------------------------------------
+# Confirm Screen
+# ---------------------------------------------------------------------------
+class ConfirmScreen(ModalScreen[bool]):
+    """Modal confirmation dialog."""
+
+    BINDINGS = [
+        Binding("y", "confirm", "Yes"),
+        Binding("n", "cancel", "No"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    DEFAULT_CSS = """
+    ConfirmScreen {
+        align: center middle;
+    }
+    #confirm-dialog {
+        width: 70;
+        height: auto;
+        max-height: 24;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-dialog Label {
+        width: 100%;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #confirm-buttons {
+        width: 100%;
+        height: auto;
+        align-horizontal: center;
+        margin-top: 1;
+    }
+    #confirm-buttons Button {
+        margin: 0 2;
+    }
+    #cmd-preview {
+        width: 100%;
+        height: auto;
+        max-height: 12;
+        border: round $accent;
+        padding: 1;
+        margin: 1 0;
+        overflow-y: auto;
+    }
+    """
+
+    def __init__(self, operation: str, params: dict):
+        super().__init__()
+        self.operation = operation
+        self.params = params
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-dialog"):
+            yield Label("⚠️  [bold]Confirm Execution[/bold]", id="confirm-title")
+            yield Label(f"[bold cyan]{self.operation}[/bold cyan]")
+            cmd = self._build_cmd()
+            yield Static(Syntax(cmd, "bash", theme="monokai"), id="cmd-preview")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("✅ Execute", variant="success", id="btn-yes")
+                yield Button("❌ Cancel", variant="error", id="btn-no")
+
+    def _build_cmd(self):
+        parts = [f"python discord-cli.py {self.operation}"]
+        for k, v in self.params.items():
+            if isinstance(v, (list, dict)):
+                parts.append(f"  --{k} '{json.dumps(v)}'")
+            elif isinstance(v, bool):
+                parts.append(f"  --{k} {'true' if v else 'false'}")
+            else:
+                parts.append(f'  --{k} "{v}"')
+        return " \\\n".join(parts)
+
+    def action_confirm(self):
+        self.dismiss(True)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#btn-yes")
+    def on_yes(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn-no")
+    def on_no(self):
+        self.dismiss(False)
+
+
+# ---------------------------------------------------------------------------
+# Main App
+# ---------------------------------------------------------------------------
+class DiscordOEA(App):
+    """Discord OEA — Interactive TUI & Web App."""
+
+    TITLE = "Discord OEA"
+    SUB_TITLE = "Omni-Execute Agent"
+    ENABLE_COMMAND_PALETTE = True
+
+    CSS = """
+    Screen {
+        background: $surface;
+    }
+
+    /* --- Sidebar --- */
+    #sidebar {
+        width: 32;
+        height: 100%;
+        dock: left;
+        background: $panel;
+        border-right: thick $accent;
+    }
+    #sidebar-title {
+        width: 100%;
+        text-align: center;
+        padding: 1;
+        color: $accent;
+        text-style: bold;
+    }
+    #cat-list {
+        height: 1fr;
+    }
+    #cat-list > ListItem {
+        padding: 0 1;
+        height: 3;
+    }
+    #cat-list > ListItem:hover {
+        background: $accent 15%;
+    }
+    #cat-list > ListItem.-selected {
+        background: $accent 30%;
+    }
+    .cat-label {
+        padding: 0 1;
+    }
+    .cat-count {
+        color: $text-muted;
+        text-align: right;
+        width: 6;
+    }
+    #search-box {
+        margin: 0 1;
+        dock: top;
+    }
+
+    /* --- Main Content --- */
+    #main {
+        height: 100%;
+    }
+    #content-area {
+        height: 1fr;
+    }
+
+    /* --- Ops Panel --- */
+    #ops-panel {
+        height: 1fr;
+        border-bottom: thick $accent;
+    }
+    #ops-table {
+        height: 1fr;
+    }
+    #ops-header {
+        width: 100%;
+        height: 3;
+        padding: 1;
+        text-style: bold;
+        color: $accent;
+        border-bottom: solid $accent;
+    }
+
+    /* --- Bottom Panel (params + results) --- */
+    #bottom-panels {
+        height: 1fr;
+    }
+    #params-panel {
+        width: 1fr;
+        border-right: solid $accent;
+        padding: 1;
+    }
+    #params-title {
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    #params-scroll {
+        height: 1fr;
+    }
+    .param-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .param-label {
+        color: $text;
+        margin-bottom: 0;
+    }
+    .param-hint {
+        color: $text-muted;
+        margin-bottom: 0;
+    }
+    .param-input {
+        margin-bottom: 0;
+    }
+
+    #execute-bar {
+        width: 100%;
+        height: auto;
+        align-horizontal: center;
+        padding: 1;
+        dock: bottom;
+    }
+    #btn-execute {
+        min-width: 20;
+    }
+
+    /* --- Results --- */
+    #results-panel {
+        width: 1fr;
+        padding: 1;
+    }
+    #results-title {
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    #results-log {
+        height: 1fr;
+        border: round $panel;
+        padding: 1;
+    }
+
+    /* --- Status Bar --- */
+    #status-bar {
+        dock: bottom;
+        height: 1;
+        background: $accent;
+        color: $text;
+        padding: 0 2;
+    }
+    .status-connected { color: $success; }
+    .status-disconnected { color: $error; }
+
+    /* --- Welcome --- */
+    #welcome {
+        width: 100%;
+        height: 100%;
+        align: center middle;
+    }
+    #welcome-text {
+        width: 60;
+        height: auto;
+        text-align: center;
+        padding: 2;
+    }
+    """
+
+    BINDINGS = [
+        Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+s", "focus_search", "Search"),
+        Binding("ctrl+e", "execute", "Execute"),
+        Binding("escape", "deselect", "Back"),
+    ]
+
+    selected_category = reactive("")
+    selected_operation = reactive("")
+
+    def __init__(self):
+        super().__init__()
+        self.categories = get_categories()
+        self.param_inputs = {}
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with Horizontal():
+            # Sidebar
+            with Vertical(id="sidebar"):
+                yield Static(
+                    "🎮 [bold bright_cyan]Discord OEA[/]\n"
+                    "[dim]144 ops • 29 categories[/]",
+                    id="sidebar-title"
+                )
+                yield Input(placeholder="🔍 Search operations...", id="search-box")
+                yield ListView(
+                    *self._build_cat_items(),
+                    id="cat-list"
+                )
+            # Main area
+            with Vertical(id="main"):
+                with Horizontal(id="content-area"):
+                    # Operations table
+                    with Vertical(id="ops-panel"):
+                        yield Static("Select a category →", id="ops-header")
+                        yield DataTable(id="ops-table", cursor_type="row")
+                    # Results panel
+                    with Vertical(id="results-panel"):
+                        yield Static("📋 [bold]Results[/bold]", id="results-title")
+                        yield RichLog(id="results-log", highlight=True, markup=True)
+                # Params + execute
+                with Horizontal(id="bottom-panels"):
+                    with Vertical(id="params-panel"):
+                        yield Static("⚙️  [bold]Parameters[/bold]", id="params-title")
+                        yield VerticalScroll(id="params-scroll")
+                        with Center(id="execute-bar"):
+                            yield Button(
+                                "▶ Execute", variant="success",
+                                id="btn-execute", disabled=True
+                            )
+        yield Footer()
+
+    def _build_cat_items(self, filter_text=""):
+        items = []
+        for cat, ops in self.categories.items():
+            icon = ICONS.get(cat, "📌")
+            label = f"{icon} {cat}"
+            if filter_text and filter_text.lower() not in cat.lower():
+                # Also search in op names
+                if not any(filter_text.lower() in op.lower() for op in ops):
+                    continue
+            item = ListItem(
+                Horizontal(
+                    Label(label, classes="cat-label"),
+                    Label(f"[{len(ops)}]", classes="cat-count"),
+                ),
+                id=f"cat-{cat}",
+            )
+            items.append(item)
+        return items
+
+    def on_mount(self):
+        table = self.query_one("#ops-table", DataTable)
+        table.add_columns("Operation", "Description")
+        # Connection status
+        token_ok = "🟢" if cli.BOT_TOKEN else "🔴"
+        guild = cli.GUILD_ID or "not set"
+        self.sub_title = f"{token_ok} Guild: {guild}"
+
+    # --- Search ---
+    @on(Input.Changed, "#search-box")
+    def on_search(self, event: Input.Changed):
+        cat_list = self.query_one("#cat-list", ListView)
+        cat_list.clear()
+        for item in self._build_cat_items(event.value):
+            cat_list.append(item)
+
+    # --- Category Selection ---
+    @on(ListView.Selected, "#cat-list")
+    def on_cat_selected(self, event: ListView.Selected):
+        item_id = event.item.id
+        if item_id and item_id.startswith("cat-"):
+            cat = item_id[4:]
+            self.selected_category = cat
+            self._show_operations(cat)
+
+    def _show_operations(self, cat):
+        ops = self.categories.get(cat, [])
+        header = self.query_one("#ops-header", Static)
+        icon = ICONS.get(cat, "📌")
+        header.update(f"{icon} [bold]{cat.upper()}[/bold] — {len(ops)} operations")
+
+        table = self.query_one("#ops-table", DataTable)
+        table.clear()
+        for op in ops:
+            desc, _ = get_op_info(op)
+            table.add_row(op, desc or "—")
+
+    # --- Operation Selection ---
+    @on(DataTable.RowSelected, "#ops-table")
+    def on_op_selected(self, event: DataTable.RowSelected):
+        row = event.data_table.get_row(event.row_key)
+        operation = str(row[0])
+        self.selected_operation = operation
+        self._show_params(operation)
+
+    def _show_params(self, operation):
+        desc, params_schema = get_op_info(operation)
+        scroll = self.query_one("#params-scroll", VerticalScroll)
+        scroll.remove_children()
+        self.param_inputs.clear()
+
+        title = self.query_one("#params-title", Static)
+        title.update(f"⚙️  [bold]{operation}[/bold]\n[dim]{desc}[/dim]")
+
+        btn = self.query_one("#btn-execute", Button)
+        btn.disabled = False
+        if operation in cli.READ_ONLY_OPS:
+            btn.label = "▶ Execute (read-only)"
+            btn.variant = "primary"
+        else:
+            btn.label = "▶ Execute"
+            btn.variant = "success"
+
+        if not params_schema:
+            scroll.mount(Static("[dim]No parameters needed.[/dim]"))
+            return
+
+        for name, info in params_schema.items():
+            if not isinstance(info, dict):
+                continue
+            required = info.get("required", False)
+            ptype = info.get("type", "string")
+            pdesc = info.get("description", "")
+            req_mark = " [bold red]*[/bold red]" if required else ""
+
+            container = Vertical(classes="param-row")
+            container.mount(
+                Static(f"[bold]{name}[/bold]{req_mark} [dim][{ptype}][/dim]", classes="param-label")
+            )
+            if pdesc:
+                container.mount(Static(f"[dim]{pdesc}[/dim]", classes="param-hint"))
+            inp = Input(
+                placeholder=f"{name} ({ptype})",
+                id=f"param-{name}",
+                classes="param-input",
+            )
+            container.mount(inp)
+            scroll.mount(container)
+            self.param_inputs[name] = inp
+
+    # --- Execute ---
+    @on(Button.Pressed, "#btn-execute")
+    def on_execute(self):
+        self.action_execute()
+
+    def action_execute(self):
+        if not self.selected_operation:
+            return
+        params = self._collect_params()
+        is_read_only = self.selected_operation in cli.READ_ONLY_OPS
+
+        if is_read_only:
+            self._run_operation(self.selected_operation, params)
+        else:
+            self.push_screen(
+                ConfirmScreen(self.selected_operation, params),
+                callback=lambda confirmed: (
+                    self._run_operation(self.selected_operation, params)
+                    if confirmed else None
+                ),
+            )
+
+    def _collect_params(self):
+        params = {}
+        for name, inp in self.param_inputs.items():
+            val = inp.value.strip()
+            if val:
+                params[name] = cli.parse_value(val)
         return params
-    
-    for name, info in params_schema.items():
-        if not isinstance(info, dict):
-            continue
-        
-        required = info.get("required", False)
-        ptype = info.get("type", "string")
-        desc = info.get("description", "")
-        default = info.get("default")
-        
-        # Build prompt label
-        req_tag = f"[bold red]*[/bold red]" if required else ""
-        type_tag = f"[{DIM}][{ptype}][/{DIM}]"
-        desc_tag = f"  [{DIM}]{desc}[/{DIM}]" if desc else ""
-        
-        console.print(f"\n  {req_tag} [bold]{name}[/bold] {type_tag}{desc_tag}")
-        
-        if default is not None:
-            prompt_text = f"    → {name} [{DIM}](default: {default})[/{DIM}]"
-        else:
-            prompt_text = f"    → {name}"
-        
-        value = Prompt.ask(prompt_text, default="" if not default else str(default))
-        
-        if value == "" and not required:
-            continue
-        elif value == "" and required:
-            console.print(f"    [{WARNING}]⚠ Skipped required param (command may fail)[/{WARNING}]")
-            continue
-        
-        # Parse value
-        params[name] = cli.parse_value(value)
-    
-    return params
 
+    @work(thread=True)
+    def _run_operation(self, operation, params):
+        log = self.query_one("#results-log", RichLog)
+        log.write(Rule(f"[bold cyan]{operation}[/bold cyan]"))
+        log.write(f"[dim]Params: {json.dumps(params, indent=2)}[/dim]\n")
 
-def show_command_preview(operation, params):
-    """Show the command that will be executed."""
-    cmd_parts = [f"python discord-cli.py {operation}"]
-    for k, v in params.items():
-        if isinstance(v, (list, dict)):
-            cmd_parts.append(f"--{k} '{json.dumps(v)}'")
-        elif isinstance(v, bool):
-            cmd_parts.append(f"--{k} {'true' if v else 'false'}")
-        else:
-            cmd_parts.append(f"--{k} \"{v}\"")
-    
-    cmd_str = " \\\n    ".join(cmd_parts)
-    
-    # Check if read-only
-    is_read_only = operation in cli.READ_ONLY_OPS
-    
-    panel_content = f"[bold white]{cmd_str}[/bold white]"
-    if not is_read_only:
-        panel_content += f"\n\n[{WARNING}]⚠ This operation will modify your server.[/{WARNING}]"
-    
-    panel_style = SUCCESS if is_read_only else WARNING
-    
-    console.print(Panel(
-        panel_content,
-        title="[bold]Command Preview[/bold]",
-        border_style=panel_style,
-        padding=(1, 2),
-    ))
-    
-    return is_read_only
+        handler = cli.HANDLERS.get(operation)
+        if not handler:
+            log.write(f"[red]Unknown operation: {operation}[/red]")
+            return
 
-
-def show_result(result, success=True):
-    """Display operation result."""
-    try:
-        data = json.loads(result)
-        formatted = json.dumps(data, indent=2)
-        syntax = Syntax(formatted, "json", theme="monokai", line_numbers=False)
-        content = syntax
-    except (json.JSONDecodeError, TypeError):
-        content = Text(str(result))
-    
-    style = SUCCESS if success else ERROR
-    title = "✅ Result" if success else "❌ Error"
-    
-    console.print(Panel(
-        content,
-        title=f"[bold]{title}[/bold]",
-        border_style=style,
-        padding=(1, 2),
-    ))
-
-
-# ---------------------------------------------------------------------------
-# Main TUI Loop
-# ---------------------------------------------------------------------------
-
-async def run_operation(operation, params):
-    """Execute an operation and display result."""
-    handler = cli.HANDLERS.get(operation)
-    if not handler:
-        show_result(f"Unknown operation: {operation}", success=False)
-        return
-    
-    with console.status(f"[{ACCENT}]Executing {operation}...", spinner="dots"):
         try:
-            result = await handler(params)
-            show_result(result, success=True)
+            result = asyncio.run(handler(params))
+            try:
+                data = json.loads(result)
+                formatted = json.dumps(data, indent=2)
+                log.write(Syntax(formatted, "json", theme="monokai"))
+            except (json.JSONDecodeError, TypeError):
+                log.write(f"[green]{result}[/green]")
         except Exception as e:
-            show_result(str(e), success=False)
+            log.write(f"[bold red]Error:[/bold red] {e}")
 
+        log.write("")
 
-def main_menu():
-    """Quick actions menu at the bottom."""
-    console.print(
-        f"  [{DIM}]Enter number to select • "
-        f"[bold]s[/bold]=search • "
-        f"[bold]h[/bold]=history • "
-        f"[bold]q[/bold]=quit[/{DIM}]"
-    )
+    def action_focus_search(self):
+        self.query_one("#search-box", Input).focus()
 
-
-def search_operations(query):
-    """Search across all operations."""
-    results = []
-    query_lower = query.lower()
-    for op in sorted(cli.HANDLERS.keys()):
-        if query_lower in op.lower():
-            results.append(op)
-            continue
-        # Also search descriptions
-        op_parts = op.split(".")
-        if len(op_parts) >= 2:
-            cat_data = cli.OPERATIONS.get("categories", {}).get(op_parts[0], {})
-            action_key = ".".join(op_parts[1:])
-            op_info = cat_data.get("operations", {}).get(action_key, {})
-            if isinstance(op_info, dict):
-                desc = op_info.get("description", "").lower()
-                if query_lower in desc:
-                    results.append(op)
-    return results
-
-
-def main():
-    """Main TUI event loop."""
-    if not cli.BOT_TOKEN:
-        console.print(Panel(
-            f"[{WARNING}]No bot token configured![/{WARNING}]\n\n"
-            "Set environment variables:\n"
-            "  [bold]export DISCORD_BOT_TOKEN=\"your-token\"[/bold]\n"
-            "  [bold]export DISCORD_GUILD_ID=\"your-guild-id\"[/bold]\n\n"
-            "Or run: [bold]python discord-cli.py --config[/bold]",
-            title="[bold]Configuration Required[/bold]",
-            border_style=WARNING,
-        ))
-    
-    history = []  # Track recent operations
-    
-    while True:
-        # ── CATEGORY SCREEN ──
-        show_header()
-        sorted_cats = show_categories()
-        main_menu()
-        
-        choice = Prompt.ask(f"\n  [{ACCENT}]Category[/{ACCENT}]").strip()
-        
-        if choice.lower() in ("q", "quit", "exit"):
-            console.print(f"\n  [{DIM}]Goodbye! 👋[/{DIM}]\n")
-            break
-        
-        # Search mode
-        if choice.lower() == "s":
-            query = Prompt.ask(f"  [{ACCENT}]Search[/{ACCENT}]")
-            results = search_operations(query)
-            if not results:
-                console.print(f"  [{WARNING}]No operations matching '{query}'[/{WARNING}]")
-                Prompt.ask(f"  [{DIM}]Press Enter to continue[/{DIM}]")
-                continue
-            
-            show_header()
-            show_operations(f"Search: '{query}'", results)
-            op_choice = Prompt.ask(f"  [{ACCENT}]Operation #[/{ACCENT}]").strip()
-            
-            if op_choice.lower() in ("b", "back", ""):
-                continue
-            try:
-                op_idx = int(op_choice) - 1
-                if 0 <= op_idx < len(results):
-                    selected_op = results[op_idx]
-                else:
-                    continue
-            except ValueError:
-                # Maybe they typed the operation name directly
-                if op_choice in cli.HANDLERS:
-                    selected_op = op_choice
-                else:
-                    continue
-            
-            # Go to param form
-            params_schema, description = get_operation_params(selected_op)
-            params = show_param_form(selected_op, params_schema, description)
-            is_read_only = show_command_preview(selected_op, params)
-            
-            if is_read_only or Confirm.ask(f"  [{ACCENT}]Execute?[/{ACCENT}]", default=False):
-                asyncio.run(run_operation(selected_op, params))
-                history.append(selected_op)
-            else:
-                console.print(f"  [{DIM}]Cancelled.[/{DIM}]")
-            
-            Prompt.ask(f"\n  [{DIM}]Press Enter to continue[/{DIM}]")
-            continue
-        
-        # History mode
-        if choice.lower() == "h":
-            if not history:
-                console.print(f"  [{DIM}]No history yet.[/{DIM}]")
-                Prompt.ask(f"  [{DIM}]Press Enter to continue[/{DIM}]")
-                continue
-            console.print(Panel(
-                "\n".join(f"  {i+1}. [bold]{op}[/bold]" for i, op in enumerate(history[-20:])),
-                title="[bold]Recent Operations[/bold]",
-                border_style=ACCENT,
-            ))
-            Prompt.ask(f"  [{DIM}]Press Enter to continue[/{DIM}]")
-            continue
-        
-        # Category selection
-        try:
-            cat_idx = int(choice) - 1
-            if cat_idx < 0 or cat_idx >= len(sorted_cats):
-                continue
-        except ValueError:
-            # Maybe they typed a category name
-            matching = [(i, c) for i, (c, _) in enumerate(sorted_cats) if c == choice.lower()]
-            if matching:
-                cat_idx = matching[0][0]
-            else:
-                continue
-        
-        cat_name, operations = sorted_cats[cat_idx]
-        
-        # ── OPERATIONS SCREEN ──
-        while True:
-            show_header()
-            show_operations(cat_name, operations)
-            console.print(f"  [{DIM}]Enter # to select • [bold]b[/bold]=back • [bold]q[/bold]=quit[/{DIM}]")
-            
-            op_choice = Prompt.ask(f"\n  [{ACCENT2}]Operation #[/{ACCENT2}]").strip()
-            
-            if op_choice.lower() in ("b", "back", ""):
-                break
-            if op_choice.lower() in ("q", "quit", "exit"):
-                console.print(f"\n  [{DIM}]Goodbye! 👋[/{DIM}]\n")
-                return
-            
-            try:
-                op_idx = int(op_choice) - 1
-                if op_idx < 0 or op_idx >= len(operations):
-                    continue
-            except ValueError:
-                # Direct operation name
-                if op_choice in cli.HANDLERS:
-                    selected_op = op_choice
-                else:
-                    continue
-            else:
-                selected_op = operations[op_idx]
-            
-            # ── PARAMETER FORM ──
-            show_header()
-            params_schema, description = get_operation_params(selected_op)
-            params = show_param_form(selected_op, params_schema, description)
-            
-            console.print()
-            is_read_only = show_command_preview(selected_op, params)
-            
-            # ── CONFIRMATION & EXECUTION ──
-            if is_read_only:
-                asyncio.run(run_operation(selected_op, params))
-                history.append(selected_op)
-            elif Confirm.ask(f"\n  [{ACCENT}]Execute this operation?[/{ACCENT}]", default=False):
-                asyncio.run(run_operation(selected_op, params))
-                history.append(selected_op)
-            else:
-                console.print(f"  [{DIM}]Cancelled.[/{DIM}]")
-            
-            Prompt.ask(f"\n  [{DIM}]Press Enter to continue[/{DIM}]")
+    def action_deselect(self):
+        self.selected_operation = ""
+        btn = self.query_one("#btn-execute", Button)
+        btn.disabled = True
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        console.print(f"\n\n  [{DIM}]Interrupted. Goodbye! 👋[/{DIM}]\n")
+    app = DiscordOEA()
+    app.run()

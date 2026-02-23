@@ -185,7 +185,32 @@ Each skill teaches your AI agent:
 
 ---
 
-## 📖 CLI Reference
+## 🖥️ Interactive TUI & Web App
+
+Built with [Textual](https://textual.textualize.io/) — a full-featured management dashboard in your terminal, with mouse support and a web app mode.
+
+```bash
+pip install textual textual-serve httpx  # one-time setup
+
+# Terminal mode
+python scripts/discord-tui.py
+
+# Web app mode (opens in your browser!)
+textual serve scripts/discord-tui.py
+```
+
+**Features:**
+- 🖱️ **Full mouse support** — Click to navigate, select, and execute
+- 📂 **Sidebar navigation** — Browse all 29 categories with live search
+- 📋 **Operations table** — Click any operation to load its parameter form
+- ⚙️ **Dynamic input forms** — Parameters auto-generated with type hints and required indicators
+- 📊 **Results panel** — Syntax-highlighted JSON output from data calls
+- ⚠️ **Confirmation modals** — Read-only ops auto-execute; mutating ops show a preview dialog
+- 🌐 **Web app mode** — Same UI in your browser via `textual serve`
+- ⌨️ **Keyboard shortcuts** — `Ctrl+S` search, `Ctrl+E` execute, `Ctrl+Q` quit
+
+
+## �📖 CLI Reference
 
 ```
 discord-cli.py [operation] [--param value ...] [flags]
@@ -240,7 +265,8 @@ python scripts/discord-cli.py channels.list --json | jq '.[].name'
 ```
 discord-oea/
 ├── scripts/
-│   ├── discord-cli.py        # 🔧 Standalone CLI (1300+ lines, 0 external deps besides httpx)
+│   ├── discord-cli.py        # 🔧 Standalone CLI (1300+ lines, all 144 operations)
+│   ├── discord-tui.py        # 🖥️ Interactive TUI (rich-based, category browser)
 │   └── operations.json       # 📋 Operation schemas with descriptions & parameters
 ├── discord-manage/
 │   └── SKILL.md              # 🏗️ Channels, roles, members, invites, events
@@ -281,8 +307,8 @@ PRs welcome! Some ideas:
 - [ ] Add more batch operations
 - [ ] Webhook message embeds support
 - [ ] File/image attachment uploads
-- [ ] Interactive TUI mode
 - [ ] Rate limit retry with exponential backoff
+- [x] ~~Interactive TUI mode~~ ✅
 
 ---
 
